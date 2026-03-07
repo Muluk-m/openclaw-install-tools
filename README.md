@@ -1,63 +1,94 @@
-# Next.js Framework Starter
+# OpenClaw Install Tools
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/next-starter-template)
+帮你装好 [OpenClaw](https://openclaw.ai/) — 交互式安装向导、局域网文件传输、智能问题诊断。
 
-<!-- dash-content-start -->
+## 功能
 
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app). It's deployed on Cloudflare Workers as a [static website](https://developers.cloudflare.com/workers/static-assets/).
+### 安装向导
+- Windows / macOS 交互式安装引导
+- 条件分支式步骤，根据你的环境自动推荐路径
+- 一键复制命令、安装命令定制生成器
 
-This template uses [OpenNext](https://opennext.js.org/) via the [OpenNext Cloudflare adapter](https://opennext.js.org/cloudflare), which works by taking the Next.js build output and transforming it, so that it can run in Cloudflare Workers.
+### LAN 传输
+- 局域网 P2P 文件/文本传输（基于 WebRTC DataChannel）
+- 数据不经服务器，隐私安全
+- 支持文件传输、文本传输、剪贴板双向同步
+- 4 位房间号配对，即开即用
 
-<!-- dash-content-end -->
+### 问题诊断
+- 常见安装错误速查（6 大类已知问题）
+- AI 日志分析（Cloudflare Workers AI）
+- 前端正则匹配 + AI 兜底，两层诊断策略
 
-Outside of this repo, you can start a new project with this template using [C3](https://developers.cloudflare.com/pages/get-started/c3/) (the `create-cloudflare` CLI):
+## 技术栈
+
+- **框架**: Next.js 16 (App Router)
+- **部署**: Cloudflare Workers
+- **UI**: shadcn/ui + Tailwind CSS v4 + Lucide React
+- **状态管理**: Zustand
+- **P2P 传输**: WebRTC 原生 API
+- **信令**: Cloudflare Durable Objects
+- **AI 分析**: Cloudflare Workers AI
+
+## 开发
 
 ```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/next-starter-template
-```
-
-A live public deployment of this template is available at [https://next-starter-template.templates.workers.dev](https://next-starter-template.templates.workers.dev)
-
-## Getting Started
-
-First, run:
-
-```bash
+# 安装依赖
 npm install
-# or
-yarn install
-# or
-pnpm install
-# or
-bun install
-```
 
-Then run the development server (using the package manager of your choice):
-
-```bash
+# 启动开发服务器
 npm run dev
+
+# 构建
+npm run build
+
+# 本地预览（Cloudflare 环境）
+npm run preview
+
+# 部署到 Cloudflare
+npm run deploy
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Cloudflare 配置
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+项目使用了以下 Cloudflare 特性，部署前需确保已启用：
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+- **Durable Objects**: 用于 WebRTC 信令中转（房间管理）
+- **Workers AI**: 用于日志分析（llama 模型）
 
-## Deploying To Production
+配置已在 `wrangler.jsonc` 中定义。
 
-| Command                           | Action                                       |
-| :-------------------------------- | :------------------------------------------- |
-| `npm run build`                   | Build your production site                   |
-| `npm run preview`                 | Preview your build locally, before deploying |
-| `npm run build && npm run deploy` | Deploy your production site to Cloudflare    |
-| `npm wrangler tail`               | View real-time logs for all Workers          |
+## 项目结构
 
-## Learn More
+```
+src/
+├── app/                    # 页面路由
+│   ├── install/            # 安装向导
+│   ├── transfer/           # LAN 传输
+│   ├── debug/              # 问题诊断
+│   └── api/                # API 路由
+├── components/
+│   ├── ui/                 # shadcn 组件
+│   ├── install/            # 安装向导组件
+│   ├── transfer/           # 传输组件
+│   └── debug/              # 诊断组件
+├── lib/                    # 工具库
+│   ├── webrtc.ts           # WebRTC 连接管理
+│   ├── signaling.ts        # 信令客户端
+│   ├── error-patterns.ts   # 错误模式库
+│   └── install-steps.ts    # 安装步骤数据
+└── stores/                 # Zustand 状态
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 贡献
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+欢迎贡献! 主要贡献方向：
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+- 补充安装步骤内容（特别是不同系统版本的差异）
+- 添加更多已知错误模式到 `src/lib/error-patterns.ts`
+- 改进 UI/UX
+- 添加新的聊天平台支持到命令生成器
+
+## License
+
+[MIT](./LICENSE)
