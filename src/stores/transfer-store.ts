@@ -29,8 +29,6 @@ export const useTransferStore = create<TransferState>((set, get) => ({
   manager: null,
 
   createRoom: async () => {
-    const res = await fetch("/api/room?action=create", { method: "POST" });
-    const data = (await res.json()) as { roomCode: string };
     const manager = new WebRTCManager();
 
     manager.onStateChange((state) => {
@@ -39,7 +37,6 @@ export const useTransferStore = create<TransferState>((set, get) => ({
 
     manager.onData((item) => {
       if (item.name === "__clipboard__") {
-        // Clipboard sync - write to clipboard
         if (get().clipboardSyncEnabled && item.text) {
           navigator.clipboard.writeText(item.text).catch(() => {});
         }
@@ -48,9 +45,9 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       set((s) => ({ items: [...s.items, item] }));
     });
 
-    await manager.connect(data.roomCode);
-    set({ roomCode: data.roomCode, manager });
-    return data.roomCode;
+    const roomCode = await manager.createRoom();
+    set({ roomCode, manager });
+    return roomCode;
   },
 
   joinRoom: async (code: string) => {
@@ -70,7 +67,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       set((s) => ({ items: [...s.items, item] }));
     });
 
-    await manager.connect(code);
+    await manager.joinRoom(code);
     set({ roomCode: code, manager });
   },
 

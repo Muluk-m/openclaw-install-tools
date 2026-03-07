@@ -24,23 +24,6 @@
 	},
 	"upload_source_maps": true,
 	/**
-	 * Durable Objects for WebRTC signaling
-	 */
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "SIGNALING",
-				"class_name": "SignalingRoom"
-			}
-		]
-	},
-	"migrations": [
-		{
-			"tag": "v1",
-			"new_sqlite_classes": ["SignalingRoom"]
-		}
-	],
-	/**
 	 * Workers AI for log analysis
 	 */
 	"ai": {

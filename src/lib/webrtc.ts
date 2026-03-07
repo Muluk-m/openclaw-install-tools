@@ -1,4 +1,4 @@
-import { SignalingClient, type SignalingMessage } from "./signaling";
+import Peer, { type DataConnection } from "peerjs";
 
 export type ConnectionState =
   | "idle"
@@ -21,11 +21,11 @@ type StateHandler = (state: ConnectionState) => void;
 type DataHandler = (data: TransferItem) => void;
 
 const CHUNK_SIZE = 16384; // 16KB chunks
+const PEER_PREFIX = "openclaw-";
 
 export class WebRTCManager {
-  private pc: RTCPeerConnection | null = null;
-  private dc: RTCDataChannel | null = null;
-  private signaling: SignalingClient;
+  private peer: Peer | null = null;
+  private conn: DataConnection | null = null;
   private stateHandlers: Set<StateHandler> = new Set();
   private dataHandlers: Set<DataHandler> = new Set();
   private receiveBuffer: ArrayBuffer[] = [];
@@ -33,10 +33,6 @@ export class WebRTCManager {
     null;
   private _state: ConnectionState = "idle";
   peerId: string = "";
-
-  constructor() {
-    this.signaling = new SignalingClient();
-  }
 
   get state() {
     return this._state;
@@ -61,185 +57,143 @@ export class WebRTCManager {
     };
   }
 
-  async connect(roomCode: string): Promise<void> {
-    this.setState("connecting");
+  /** Create a room (host mode) - returns the room code */
+  createRoom(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const code = String(Math.floor(1000 + Math.random() * 9000));
+      const peerId = PEER_PREFIX + code;
 
-    await this.signaling.connect(roomCode);
+      this.peer = new Peer(peerId);
+      this.setState("connecting");
 
-    this.signaling.onMessage((msg) => this.handleSignalingMessage(msg));
-  }
+      this.peer.on("open", () => {
+        this.peerId = "host";
+        this.setState("idle"); // waiting for guest
+        resolve(code);
+      });
 
-  private async handleSignalingMessage(msg: SignalingMessage) {
-    switch (msg.type) {
-      case "welcome":
-        this.peerId = msg.peerId;
-        if (msg.peerId === "host") {
-          // Host waits for guest
+      this.peer.on("connection", (conn) => {
+        this.conn = conn;
+        this.setupConnection(conn);
+      });
+
+      this.peer.on("error", (err) => {
+        if (err.type === "unavailable-id") {
+          // Room code collision, try again
+          this.peer?.destroy();
+          this.createRoom().then(resolve, reject);
+        } else {
+          reject(new Error(err.message || "Failed to create room"));
         }
-        break;
-
-      case "peer-joined":
-        // Host creates offer
-        await this.createOffer();
-        break;
-
-      case "offer":
-        await this.handleOffer(msg.sdp);
-        break;
-
-      case "answer":
-        await this.handleAnswer(msg.sdp);
-        break;
-
-      case "ice-candidate":
-        await this.pc?.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        break;
-
-      case "peer-left":
-        this.setState("disconnected");
-        break;
-    }
+      });
+    });
   }
 
-  private createPeerConnection() {
-    this.pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  /** Join a room (guest mode) */
+  joinRoom(code: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const hostPeerId = PEER_PREFIX + code;
+
+      this.peer = new Peer();
+      this.setState("connecting");
+
+      this.peer.on("open", () => {
+        this.peerId = "guest";
+        const conn = this.peer!.connect(hostPeerId, { reliable: true });
+        this.conn = conn;
+        this.setupConnection(conn);
+        resolve();
+      });
+
+      this.peer.on("error", (err) => {
+        reject(new Error(err.message || "Failed to join room"));
+      });
+    });
+  }
+
+  private setupConnection(conn: DataConnection) {
+    conn.on("open", () => {
+      this.setState("connected");
     });
 
-    this.pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        this.signaling.send({
-          type: "ice-candidate",
-          candidate: event.candidate.toJSON(),
-        });
+    conn.on("data", (raw) => {
+      if (raw instanceof ArrayBuffer) {
+        this.receiveBuffer.push(raw);
+        return;
       }
-    };
 
-    this.pc.onconnectionstatechange = () => {
-      if (this.pc?.connectionState === "connected") {
-        this.setState("connected");
-      } else if (
-        this.pc?.connectionState === "disconnected" ||
-        this.pc?.connectionState === "failed"
-      ) {
-        this.setState("disconnected");
-      }
-    };
+      const msg = raw as Record<string, unknown>;
 
-    this.pc.ondatachannel = (event) => {
-      this.dc = event.channel;
-      this.setupDataChannel();
-    };
-  }
-
-  private setupDataChannel() {
-    if (!this.dc) return;
-
-    this.dc.binaryType = "arraybuffer";
-
-    this.dc.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        const msg = JSON.parse(event.data);
-        if (msg.type === "file-meta") {
-          this.receiveMetadata = {
-            name: msg.name,
-            size: msg.size,
-            id: msg.id,
+      if (msg.type === "file-meta") {
+        this.receiveMetadata = {
+          name: msg.name as string,
+          size: msg.size as number,
+          id: msg.id as string,
+        };
+        this.receiveBuffer = [];
+      } else if (msg.type === "file-end") {
+        if (this.receiveMetadata) {
+          const blob = new Blob(this.receiveBuffer);
+          const reader = new FileReader();
+          reader.onload = () => {
+            this.dataHandlers.forEach((h) =>
+              h({
+                id: this.receiveMetadata!.id,
+                type: "file",
+                name: this.receiveMetadata!.name,
+                size: this.receiveMetadata!.size,
+                data: reader.result as ArrayBuffer,
+                direction: "receive",
+              })
+            );
+            this.receiveMetadata = null;
+            this.receiveBuffer = [];
           };
-          this.receiveBuffer = [];
-        } else if (msg.type === "file-end") {
-          if (this.receiveMetadata) {
-            const blob = new Blob(this.receiveBuffer);
-            const reader = new FileReader();
-            reader.onload = () => {
-              this.dataHandlers.forEach((h) =>
-                h({
-                  id: this.receiveMetadata!.id,
-                  type: "file",
-                  name: this.receiveMetadata!.name,
-                  size: this.receiveMetadata!.size,
-                  data: reader.result as ArrayBuffer,
-                  direction: "receive",
-                })
-              );
-              this.receiveMetadata = null;
-              this.receiveBuffer = [];
-            };
-            reader.readAsArrayBuffer(blob);
-          }
-        } else if (msg.type === "text") {
-          this.dataHandlers.forEach((h) =>
-            h({
-              id: crypto.randomUUID(),
-              type: "text",
-              text: msg.text,
-              direction: "receive",
-            })
-          );
-        } else if (msg.type === "clipboard") {
-          this.dataHandlers.forEach((h) =>
-            h({
-              id: crypto.randomUUID(),
-              type: "text",
-              text: msg.text,
-              direction: "receive",
-              name: "__clipboard__",
-            })
-          );
+          reader.readAsArrayBuffer(blob);
         }
-      } else {
-        // Binary data - file chunk
-        this.receiveBuffer.push(event.data);
+      } else if (msg.type === "text") {
+        this.dataHandlers.forEach((h) =>
+          h({
+            id: crypto.randomUUID(),
+            type: "text",
+            text: msg.text as string,
+            direction: "receive",
+          })
+        );
+      } else if (msg.type === "clipboard") {
+        this.dataHandlers.forEach((h) =>
+          h({
+            id: crypto.randomUUID(),
+            type: "text",
+            text: msg.text as string,
+            direction: "receive",
+            name: "__clipboard__",
+          })
+        );
       }
-    };
-  }
-
-  private async createOffer() {
-    this.createPeerConnection();
-
-    this.dc = this.pc!.createDataChannel("transfer");
-    this.setupDataChannel();
-
-    const offer = await this.pc!.createOffer();
-    await this.pc!.setLocalDescription(offer);
-
-    this.signaling.send({
-      type: "offer",
-      sdp: this.pc!.localDescription!,
     });
-  }
 
-  private async handleOffer(sdp: RTCSessionDescriptionInit) {
-    this.createPeerConnection();
-
-    await this.pc!.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await this.pc!.createAnswer();
-    await this.pc!.setLocalDescription(answer);
-
-    this.signaling.send({
-      type: "answer",
-      sdp: this.pc!.localDescription!,
+    conn.on("close", () => {
+      this.setState("disconnected");
     });
-  }
 
-  private async handleAnswer(sdp: RTCSessionDescriptionInit) {
-    await this.pc!.setRemoteDescription(new RTCSessionDescription(sdp));
+    conn.on("error", () => {
+      this.setState("disconnected");
+    });
   }
 
   async sendFile(file: File) {
-    if (!this.dc || this.dc.readyState !== "open") return;
+    if (!this.conn?.open) return;
 
     const id = crypto.randomUUID();
 
     // Send metadata
-    this.dc.send(
-      JSON.stringify({
-        type: "file-meta",
-        name: file.name,
-        size: file.size,
-        id,
-      })
-    );
+    this.conn.send({
+      type: "file-meta",
+      name: file.name,
+      size: file.size,
+      id,
+    });
 
     // Send chunks
     const buffer = await file.arrayBuffer();
@@ -247,39 +201,34 @@ export class WebRTCManager {
 
     while (offset < buffer.byteLength) {
       const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-
-      // Wait for buffer to drain if needed
-      while (
-        this.dc.bufferedAmount > CHUNK_SIZE * 8 &&
-        this.dc.readyState === "open"
-      ) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-
-      this.dc.send(chunk);
+      this.conn.send(chunk);
       offset += CHUNK_SIZE;
+
+      // Yield to avoid blocking
+      if (offset % (CHUNK_SIZE * 16) === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
     }
 
     // Send end marker
-    this.dc.send(JSON.stringify({ type: "file-end", id }));
+    this.conn.send({ type: "file-end", id });
   }
 
   sendText(text: string) {
-    if (!this.dc || this.dc.readyState !== "open") return;
-    this.dc.send(JSON.stringify({ type: "text", text }));
+    if (!this.conn?.open) return;
+    this.conn.send({ type: "text", text });
   }
 
   sendClipboard(text: string) {
-    if (!this.dc || this.dc.readyState !== "open") return;
-    this.dc.send(JSON.stringify({ type: "clipboard", text }));
+    if (!this.conn?.open) return;
+    this.conn.send({ type: "clipboard", text });
   }
 
   disconnect() {
-    this.dc?.close();
-    this.pc?.close();
-    this.signaling.disconnect();
-    this.dc = null;
-    this.pc = null;
+    this.conn?.close();
+    this.peer?.destroy();
+    this.conn = null;
+    this.peer = null;
     this.setState("idle");
     this.stateHandlers.clear();
     this.dataHandlers.clear();
