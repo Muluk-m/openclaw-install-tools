@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, Terminal, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Logo } from "@/components/logo";
 
 const navItems = [
   { href: "/", label: "首页" },
@@ -29,7 +30,7 @@ export function Navbar() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-14 max-w-5xl items-center px-4">
         <Link href="/" className="mr-6 flex items-center gap-2 font-bold">
-          <Terminal className="h-5 w-5" />
+          <Logo className="h-5 w-5" />
           <span>OpenClaw Tools</span>
         </Link>
 

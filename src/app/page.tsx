@@ -51,7 +51,7 @@ export default function Home() {
             <ArrowRight className="ml-2 h-4 w-4" />
           </Link>
           <Link
-            href="https://github.com/user/openclaw-install-tools"
+            href="https://github.com/Muluk-m/openclaw-install-tools"
             target="_blank"
             rel="noopener noreferrer"
             className={buttonVariants({ variant: "outline", size: "lg" })}
