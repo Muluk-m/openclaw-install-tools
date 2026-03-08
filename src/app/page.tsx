@@ -15,9 +15,9 @@ const features = [
   {
     href: "/install",
     icon: Download,
-    title: "安装向导",
-    description: "Windows / macOS 交互式安装引导，根据你的环境自动推荐步骤",
-    detail: "支持条件分支、一键复制命令、安装命令定制生成",
+    title: "安装指南",
+    description: "从环境搭建到飞书插件接入，每一步都有 AI 验证",
+    detail: "复制命令、粘贴输出、AI 判断是否正确，遇到问题当场诊断",
   },
   {
     href: "/transfer",
@@ -29,9 +29,9 @@ const features = [
   {
     href: "/debug",
     icon: Bug,
-    title: "问题诊断",
-    description: "常见安装错误速查 + AI 日志分析，快速定位问题",
-    detail: "已知问题秒级匹配，未知错误 AI 智能分析",
+    title: "AI 诊断",
+    description: "粘贴报错日志，AI 分析问题并给出修复建议",
+    detail: "Cloudflare Workers AI 驱动，无需注册，即粘即诊",
   },
 ];
 
@@ -43,7 +43,7 @@ export default function Home() {
           OpenClaw Install Tools
         </h1>
         <p className="max-w-[600px] text-lg text-muted-foreground">
-          帮你装好 OpenClaw —— 交互式安装向导、局域网文件传输、智能问题诊断
+          帮你装好 OpenClaw —— 安装指南、局域网传输、AI 问题诊断
         </p>
         <div className="flex gap-3 mt-2">
           <Link href="/install" className={buttonVariants({ size: "lg" })}>

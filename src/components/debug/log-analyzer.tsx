@@ -7,9 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CommandBlock } from "@/components/install/command-block";
-import { matchError, issueDetails } from "@/lib/error-patterns";
-import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
+
+const MAX_CHARS = 10000;
 
 interface AIResult {
   errorType: string;
@@ -22,25 +21,17 @@ export function LogAnalyzer() {
   const [log, setLog] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AIResult | null>(null);
-  const [localMatch, setLocalMatch] = useState<string | null>(null);
   const [error, setError] = useState("");
 
+  const overLimit = log.length > MAX_CHARS;
+
   const handleAnalyze = async () => {
-    if (!log.trim()) return;
+    if (!log.trim() || overLimit) return;
 
     setResult(null);
-    setLocalMatch(null);
     setError("");
-
-    // First: try local pattern matching
-    const match = matchError(log);
-    if (match) {
-      setLocalMatch(match.slug);
-      return;
-    }
-
-    // Second: call AI
     setLoading(true);
+
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -55,13 +46,11 @@ export function LogAnalyzer() {
       const data = (await res.json()) as AIResult;
       setResult(data);
     } catch {
-      setError("AI 分析暂时不可用，请查看常见问题库");
+      setError("AI 分析暂时不可用，请检查网络后重试");
     } finally {
       setLoading(false);
     }
   };
-
-  const matchedIssue = localMatch ? issueDetails[localMatch] : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -70,15 +59,27 @@ export function LogAnalyzer() {
         您的日志内容将发送至 Cloudflare Workers AI 进行分析，不会被存储。
       </div>
 
-      <Textarea
-        placeholder="粘贴终端报错日志..."
-        value={log}
-        onChange={(e) => setLog(e.target.value)}
-        rows={8}
-        className="font-mono text-sm"
-      />
+      <div className="flex flex-col gap-2">
+        <Textarea
+          placeholder="粘贴终端报错日志..."
+          value={log}
+          onChange={(e) => setLog(e.target.value)}
+          rows={8}
+          className="font-mono text-sm"
+        />
+        {log.length > 0 && (
+          <span
+            className={`text-xs self-end ${overLimit ? "text-destructive" : "text-muted-foreground"}`}
+          >
+            {log.length.toLocaleString()} / {MAX_CHARS.toLocaleString()}
+          </span>
+        )}
+      </div>
 
-      <Button onClick={handleAnalyze} disabled={loading || !log.trim()}>
+      <Button
+        onClick={handleAnalyze}
+        disabled={loading || !log.trim() || overLimit}
+      >
         {loading ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
@@ -86,26 +87,6 @@ export function LogAnalyzer() {
         )}
         分析日志
       </Button>
-
-      {matchedIssue && (
-        <Card className="border-green-200 dark:border-green-900">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-lg">{matchedIssue.title}</CardTitle>
-              <Badge variant="secondary">本地匹配</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">{matchedIssue.cause}</p>
-            <Link
-              href={`/debug/${matchedIssue.slug}`}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              查看完整修复方案
-            </Link>
-          </CardContent>
-        </Card>
-      )}
 
       {result && (
         <Card>
@@ -145,12 +126,7 @@ export function LogAnalyzer() {
       )}
 
       {error && (
-        <div className="flex flex-col items-center gap-3 py-4">
-          <p className="text-sm text-destructive">{error}</p>
-          <Link href="/debug" className={buttonVariants({ variant: "outline" })}>
-            查看常见问题库
-          </Link>
-        </div>
+        <p className="text-sm text-destructive">{error}</p>
       )}
     </div>
   );

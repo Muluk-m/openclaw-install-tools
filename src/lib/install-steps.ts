@@ -1,252 +1,188 @@
-export type Platform = "windows" | "mac";
+export type Phase = "environment" | "openclaw" | "feishu";
 
-export interface CommandDef {
-  command: string;
-  lang?: string;
-}
-
-export interface BranchOption {
-  label: string;
-  description?: string;
-  nextStepId: string;
-}
-
-export interface StepNode {
+export interface InstallStep {
   id: string;
+  phase: Phase;
   title: string;
-  description?: string;
-  commands?: CommandDef[];
-  branches?: BranchOption[];
-  nextStepId?: string;
-  isFinal?: boolean;
+  description: string;
+  command?: string;
+  platformCommands?: {
+    mac?: string;
+    windows?: string;
+  };
+  expectedOutput?: string;
+  externalLink?: {
+    url: string;
+    label: string;
+  };
+  verifiable: boolean;
 }
 
-export interface StepTree {
-  platform: Platform;
-  title: string;
-  startStepId: string;
-  steps: Record<string, StepNode>;
-}
-
-export const windowsSteps: StepTree = {
-  platform: "windows",
-  title: "Windows 安装向导",
-  startStepId: "check-node",
-  steps: {
-    "check-node": {
-      id: "check-node",
-      title: "检查 Node.js 环境",
-      description:
-        "OpenClaw 需要 Node.js 18 或更高版本。打开 PowerShell 或命令提示符，运行以下命令检查：",
-      commands: [{ command: "node --version", lang: "powershell" }],
-      branches: [
-        {
-          label: "已安装 (v18+)",
-          description: "输出类似 v18.x.x 或更高",
-          nextStepId: "install-method",
-        },
-        {
-          label: "未安装或版本过低",
-          description: "报错或版本低于 18",
-          nextStepId: "install-node",
-        },
-      ],
-    },
-    "install-node": {
-      id: "install-node",
-      title: "安装 Node.js",
-      description:
-        '前往 Node.js 官网下载 LTS 版本安装包，安装时勾选 "Add to PATH" 选项。安装完成后重新打开终端验证：',
-      commands: [
-        { command: "# 下载地址: https://nodejs.org/\n# 选择 LTS 版本，下载 .msi 安装包\n# 安装时确保勾选 'Add to PATH'", lang: "powershell" },
-        { command: "node --version\nnpm --version", lang: "powershell" },
-      ],
-      nextStepId: "install-method",
-    },
-    "install-method": {
-      id: "install-method",
-      title: "选择安装方式",
-      description: "推荐使用 npm 全局安装，简单快捷。如果你想修改源码，选择 Git 克隆方式。",
-      branches: [
-        {
-          label: "npm 安装 (推荐)",
-          description: "一行命令，全局安装",
-          nextStepId: "npm-install",
-        },
-        {
-          label: "Git 克隆",
-          description: "适合开发者，可修改源码",
-          nextStepId: "git-install",
-        },
-      ],
-    },
-    "npm-install": {
-      id: "npm-install",
-      title: "通过 npm 安装 OpenClaw",
-      description: "以管理员身份打开 PowerShell，运行以下命令：",
-      commands: [{ command: "npm i -g openclaw", lang: "powershell" }],
-      nextStepId: "onboard",
-    },
-    "git-install": {
-      id: "git-install",
-      title: "通过 Git 克隆安装",
-      description: "确保已安装 Git 和 pnpm，然后运行：",
-      commands: [
-        {
-          command:
-            "git clone https://github.com/nicepkg/openclaw.git\ncd openclaw\npnpm install\npnpm build",
-          lang: "powershell",
-        },
-      ],
-      nextStepId: "onboard",
-    },
-    onboard: {
-      id: "onboard",
-      title: "初始化配置",
-      description: "运行 onboard 命令，按提示选择 AI 模型和聊天平台：",
-      commands: [{ command: "openclaw onboard", lang: "powershell" }],
-      nextStepId: "verify",
-    },
-    verify: {
-      id: "verify",
-      title: "验证安装",
-      description: "运行以下命令确认 OpenClaw 正常工作：",
-      commands: [{ command: "openclaw --version\nopenclaw status", lang: "powershell" }],
-      isFinal: true,
-    },
-  },
+export const phaseLabels: Record<Phase, string> = {
+  environment: "环境准备",
+  openclaw: "OpenClaw 初始化",
+  feishu: "飞书插件接入",
 };
 
-export const macSteps: StepTree = {
-  platform: "mac",
-  title: "macOS 安装向导",
-  startStepId: "check-homebrew",
-  steps: {
-    "check-homebrew": {
-      id: "check-homebrew",
-      title: "检查 Homebrew",
-      description:
-        "Homebrew 是 macOS 的包管理器，方便安装 Node.js 等依赖。检查是否已安装：",
-      commands: [{ command: "brew --version", lang: "bash" }],
-      branches: [
-        {
-          label: "已安装",
-          description: "输出 Homebrew 版本号",
-          nextStepId: "check-node",
-        },
-        {
-          label: "未安装",
-          description: "报错 command not found",
-          nextStepId: "install-homebrew",
-        },
-      ],
+export const installSteps: InstallStep[] = [
+  // ── Phase 1: 环境准备 ──
+  {
+    id: "check-node",
+    phase: "environment",
+    title: "检查 Node.js",
+    description:
+      "OpenClaw 需要 Node.js 18 或更高版本。打开终端运行以下命令检查是否已安装：",
+    platformCommands: {
+      mac: "node --version",
+      windows: "node --version",
     },
-    "install-homebrew": {
-      id: "install-homebrew",
-      title: "安装 Homebrew",
-      description: "在终端中运行以下命令安装 Homebrew：",
-      commands: [
-        {
-          command:
-            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
-          lang: "bash",
-        },
-      ],
-      nextStepId: "check-node",
-    },
-    "check-node": {
-      id: "check-node",
-      title: "检查 Node.js 环境",
-      description: "OpenClaw 需要 Node.js 18 或更高版本：",
-      commands: [{ command: "node --version", lang: "bash" }],
-      branches: [
-        {
-          label: "已安装 (v18+)",
-          description: "输出类似 v18.x.x 或更高",
-          nextStepId: "install-method",
-        },
-        {
-          label: "未安装或版本过低",
-          nextStepId: "install-node",
-        },
-      ],
-    },
-    "install-node": {
-      id: "install-node",
-      title: "安装 Node.js",
-      description: "通过 Homebrew 安装最新 LTS 版本的 Node.js：",
-      commands: [
-        { command: "brew install node", lang: "bash" },
-        { command: "node --version\nnpm --version", lang: "bash" },
-      ],
-      nextStepId: "install-method",
-    },
-    "install-method": {
-      id: "install-method",
-      title: "选择安装方式",
-      description: "macOS 支持三种安装方式：",
-      branches: [
-        {
-          label: "curl 一键安装 (推荐)",
-          description: "最快捷的方式",
-          nextStepId: "curl-install",
-        },
-        {
-          label: "npm 安装",
-          description: "全局 npm 包",
-          nextStepId: "npm-install",
-        },
-        {
-          label: "Git 克隆",
-          description: "适合开发者",
-          nextStepId: "git-install",
-        },
-      ],
-    },
-    "curl-install": {
-      id: "curl-install",
-      title: "通过 curl 一键安装",
-      description: "运行以下命令，脚本会自动处理所有依赖：",
-      commands: [
-        {
-          command: "curl -fsSL https://openclaw.ai/install.sh | bash",
-          lang: "bash",
-        },
-      ],
-      nextStepId: "onboard",
-    },
-    "npm-install": {
-      id: "npm-install",
-      title: "通过 npm 安装 OpenClaw",
-      commands: [{ command: "npm i -g openclaw", lang: "bash" }],
-      nextStepId: "onboard",
-    },
-    "git-install": {
-      id: "git-install",
-      title: "通过 Git 克隆安装",
-      description: "确保已安装 pnpm（`npm i -g pnpm`），然后运行：",
-      commands: [
-        {
-          command:
-            "git clone https://github.com/nicepkg/openclaw.git\ncd openclaw\npnpm install\npnpm build",
-          lang: "bash",
-        },
-      ],
-      nextStepId: "onboard",
-    },
-    onboard: {
-      id: "onboard",
-      title: "初始化配置",
-      description: "运行 onboard 命令，按提示选择 AI 模型和聊天平台：",
-      commands: [{ command: "openclaw onboard", lang: "bash" }],
-      nextStepId: "verify",
-    },
-    verify: {
-      id: "verify",
-      title: "验证安装",
-      description: "运行以下命令确认 OpenClaw 正常工作：",
-      commands: [{ command: "openclaw --version\nopenclaw status", lang: "bash" }],
-      isFinal: true,
-    },
+    expectedOutput: "v20.18.0",
+    verifiable: true,
   },
-};
+  {
+    id: "install-node",
+    phase: "environment",
+    title: "安装 Node.js（如未安装）",
+    description:
+      "如果上一步提示 command not found 或版本低于 18，需要先安装 Node.js。",
+    platformCommands: {
+      mac: "brew install node",
+      windows:
+        "# 前往 https://nodejs.org/ 下载 LTS 版本 .msi 安装包\n# 安装时确保勾选 'Add to PATH'",
+    },
+    expectedOutput: "v20.18.0",
+    verifiable: true,
+  },
+  {
+    id: "check-npm",
+    phase: "environment",
+    title: "检查 npm",
+    description: "确认 npm 已随 Node.js 一起安装：",
+    platformCommands: {
+      mac: "npm --version",
+      windows: "npm --version",
+    },
+    expectedOutput: "10.8.2",
+    verifiable: true,
+  },
+
+  // ── Phase 2: OpenClaw 初始化 ──
+  {
+    id: "install-openclaw",
+    phase: "openclaw",
+    title: "安装 OpenClaw",
+    description: "通过 npm 全局安装 OpenClaw：",
+    platformCommands: {
+      mac: "npm i -g openclaw",
+      windows: "npm i -g openclaw",
+    },
+    expectedOutput: "added 1 package in 3s",
+    verifiable: true,
+  },
+  {
+    id: "openclaw-onboard",
+    phase: "openclaw",
+    title: "初始化 OpenClaw",
+    description:
+      "运行 onboard 命令，按照交互式提示完成基础配置（选择 AI 模型和聊天平台）：",
+    command: "openclaw onboard",
+    verifiable: false,
+  },
+  {
+    id: "connect-model",
+    phase: "openclaw",
+    title: "连接大模型",
+    description:
+      "onboard 流程中会提示输入 API Key。如果选择了 Anthropic Claude，需要设置 ANTHROPIC_API_KEY；选择 OpenAI 则需要 OPENAI_API_KEY。确保 key 配置正确：",
+    command: "openclaw config get",
+    expectedOutput: "model: anthropic/claude-3.5-sonnet\napi_key: sk-***",
+    verifiable: true,
+  },
+  {
+    id: "verify-openclaw",
+    phase: "openclaw",
+    title: "验证安装",
+    description: "确认 OpenClaw 已正确安装且服务正常运行：",
+    command: "openclaw --version && openclaw status",
+    expectedOutput:
+      "openclaw v2026.2.26\nStatus: running\nModel: anthropic/claude-3.5-sonnet\nPlugins: 0 loaded",
+    verifiable: true,
+  },
+
+  // ── Phase 3: 飞书插件接入 ──
+  {
+    id: "feishu-create-app",
+    phase: "feishu",
+    title: "创建飞书自建应用",
+    description:
+      '登录飞书开放平台，创建一个企业自建应用。填写应用名称和描述，然后在「应用能力」中添加「机器人」能力。详细步骤请参考官方文档：',
+    externalLink: {
+      url: "https://www.feishu.cn/content/article/7613711414611463386",
+      label: "飞书插件官方安装指南",
+    },
+    verifiable: false,
+  },
+  {
+    id: "feishu-permissions",
+    phase: "feishu",
+    title: "配置应用权限",
+    description:
+      '在飞书开放平台的应用后台，通过「批量导入/导出权限」功能导入所需权限（消息、文档、日历、多维表格、任务等）。权限 JSON 参考官方文档。',
+    externalLink: {
+      url: "https://www.feishu.cn/content/article/7613711414611463386",
+      label: "查看权限配置详情",
+    },
+    verifiable: false,
+  },
+  {
+    id: "feishu-publish",
+    phase: "feishu",
+    title: "发布应用并获取凭证",
+    description:
+      '创建应用版本并发布，然后在「基础信息 > 凭证与基础信息」中获取 App ID 和 App Secret。这两个值后续安装插件时需要用到。',
+    verifiable: false,
+  },
+  {
+    id: "feishu-install-plugin",
+    phase: "feishu",
+    title: "安装飞书插件",
+    description:
+      "运行以下命令安装飞书插件，按照提示输入 App ID 和 App Secret：",
+    platformCommands: {
+      mac: "openclaw plugin install feishu\nfeishu-plugin-onboard install",
+      windows:
+        "openclaw plugin install feishu\nfeishu-plugin-onboard install",
+    },
+    expectedOutput: "Feishu plugin installed successfully",
+    verifiable: true,
+  },
+  {
+    id: "feishu-gateway",
+    phase: "feishu",
+    title: "启动网关并配置事件订阅",
+    description:
+      '启动 OpenClaw 网关。然后回到飞书开放平台，在「事件订阅」中选择「长链接」方式接收事件，添加消息事件：',
+    command: "openclaw gateway run",
+    expectedOutput: "Gateway started on port 9000\nFeishu plugin loaded",
+    verifiable: true,
+  },
+  {
+    id: "feishu-pairing",
+    phase: "feishu",
+    title: "机器人配对授权",
+    description:
+      "在飞书中向机器人发送一条消息，机器人会返回一个配对码（5 分钟内有效）。然后在终端执行配对命令：",
+    command: "openclaw pairing approve feishu <配对码> --notify",
+    verifiable: false,
+  },
+  {
+    id: "feishu-verify",
+    phase: "feishu",
+    title: "验证飞书插件",
+    description: "在飞书对话中发送以下命令确认插件安装成功：",
+    command: "openclaw status",
+    expectedOutput:
+      "Status: running\nPlugins: feishu (v1.0.0) loaded\nFeishu: connected",
+    verifiable: true,
+  },
+];
