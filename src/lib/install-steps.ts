@@ -225,6 +225,10 @@ export const installSteps: InstallStep[] = [
     title: "安装 Node.js（如未安装）",
     description:
       "如果上一步提示 command not found 或版本低于 18，需要先安装 Node.js。",
+    link: {
+      url: "https://nodejs.org/zh-cn",
+      label: "Node.js 官网下载",
+    },
     commands: {
       mode: "platform",
       mac: "brew install node",
