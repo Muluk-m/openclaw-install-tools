@@ -27,6 +27,33 @@ type ProgressHandler = (id: string, progress: number, status: TransferStatus) =>
 const CHUNK_SIZE = 16384; // 16KB chunks
 const HIGH_WATER_MARK = CHUNK_SIZE * 8; // 128KB buffer threshold
 const PEER_PREFIX = "openclaw-";
+const CONNECT_TIMEOUT = 15000; // 15s connection timeout
+
+// ICE servers for better NAT traversal
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
+
+const PEER_CONFIG = {
+  config: { iceServers: ICE_SERVERS },
+};
 
 export class WebRTCManager {
   private peer: Peer | null = null;
@@ -81,7 +108,7 @@ export class WebRTCManager {
       const code = String(Math.floor(1000 + Math.random() * 9000));
       const peerId = PEER_PREFIX + code;
 
-      this.peer = new Peer(peerId);
+      this.peer = new Peer(peerId, PEER_CONFIG);
       this.setState("connecting");
 
       this.peer.on("open", () => {
@@ -111,8 +138,17 @@ export class WebRTCManager {
   joinRoom(code: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const hostPeerId = PEER_PREFIX + code;
+      let settled = false;
 
-      this.peer = new Peer();
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          this.peer?.destroy();
+          reject(new Error("连接超时，请确认房间号正确且对方在线"));
+        }
+      }, CONNECT_TIMEOUT);
+
+      this.peer = new Peer(PEER_CONFIG);
       this.setState("connecting");
 
       this.peer.on("open", () => {
@@ -120,11 +156,25 @@ export class WebRTCManager {
         const conn = this.peer!.connect(hostPeerId, { reliable: true });
         this.conn = conn;
         this.setupConnection(conn);
+
+        conn.on("open", () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+          }
+        });
+
+        // Resolve immediately so UI navigates to room page
+        // Connection status is tracked via onStateChange
         resolve();
       });
 
       this.peer.on("error", (err) => {
-        reject(new Error(err.message || "Failed to join room"));
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(new Error(err.message || "连接失败"));
+        }
       });
     });
   }
