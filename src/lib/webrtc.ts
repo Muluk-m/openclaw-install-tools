@@ -6,6 +6,8 @@ export type ConnectionState =
   | "connected"
   | "disconnected";
 
+export type TransferStatus = "pending" | "transferring" | "done" | "error";
+
 export interface TransferItem {
   id: string;
   type: "file" | "text";
@@ -13,14 +15,17 @@ export interface TransferItem {
   size?: number;
   data?: ArrayBuffer;
   text?: string;
-  progress?: number;
+  progress?: number; // 0-1
+  status?: TransferStatus;
   direction: "send" | "receive";
 }
 
 type StateHandler = (state: ConnectionState) => void;
 type DataHandler = (data: TransferItem) => void;
+type ProgressHandler = (id: string, progress: number, status: TransferStatus) => void;
 
 const CHUNK_SIZE = 16384; // 16KB chunks
+const HIGH_WATER_MARK = CHUNK_SIZE * 8; // 128KB buffer threshold
 const PEER_PREFIX = "openclaw-";
 
 export class WebRTCManager {
@@ -28,7 +33,9 @@ export class WebRTCManager {
   private conn: DataConnection | null = null;
   private stateHandlers: Set<StateHandler> = new Set();
   private dataHandlers: Set<DataHandler> = new Set();
+  private progressHandlers: Set<ProgressHandler> = new Set();
   private receiveBuffer: ArrayBuffer[] = [];
+  private receivedBytes: number = 0;
   private receiveMetadata: { name: string; size: number; id: string } | null =
     null;
   private _state: ConnectionState = "idle";
@@ -43,6 +50,10 @@ export class WebRTCManager {
     this.stateHandlers.forEach((h) => h(state));
   }
 
+  private emitProgress(id: string, progress: number, status: TransferStatus) {
+    this.progressHandlers.forEach((h) => h(id, progress, status));
+  }
+
   onStateChange(handler: StateHandler) {
     this.stateHandlers.add(handler);
     return () => {
@@ -54,6 +65,13 @@ export class WebRTCManager {
     this.dataHandlers.add(handler);
     return () => {
       this.dataHandlers.delete(handler);
+    };
+  }
+
+  onProgress(handler: ProgressHandler) {
+    this.progressHandlers.add(handler);
+    return () => {
+      this.progressHandlers.delete(handler);
     };
   }
 
@@ -119,6 +137,20 @@ export class WebRTCManager {
     conn.on("data", (raw) => {
       if (raw instanceof ArrayBuffer) {
         this.receiveBuffer.push(raw);
+        this.receivedBytes += raw.byteLength;
+
+        // Emit receive progress
+        if (this.receiveMetadata) {
+          const progress = Math.min(
+            this.receivedBytes / this.receiveMetadata.size,
+            0.99
+          );
+          this.emitProgress(
+            this.receiveMetadata.id,
+            progress,
+            "transferring"
+          );
+        }
         return;
       }
 
@@ -131,25 +163,44 @@ export class WebRTCManager {
           id: msg.id as string,
         };
         this.receiveBuffer = [];
+        this.receivedBytes = 0;
+
+        // Notify a new file is incoming
+        this.dataHandlers.forEach((h) =>
+          h({
+            id: msg.id as string,
+            type: "file",
+            name: msg.name as string,
+            size: msg.size as number,
+            progress: 0,
+            status: "transferring",
+            direction: "receive",
+          })
+        );
       } else if (msg.type === "file-end") {
         if (this.receiveMetadata) {
           const blob = new Blob(this.receiveBuffer);
           const reader = new FileReader();
+          const meta = this.receiveMetadata;
           reader.onload = () => {
+            this.emitProgress(meta.id, 1, "done");
             this.dataHandlers.forEach((h) =>
               h({
-                id: this.receiveMetadata!.id,
+                id: meta.id,
                 type: "file",
-                name: this.receiveMetadata!.name,
-                size: this.receiveMetadata!.size,
+                name: meta.name,
+                size: meta.size,
                 data: reader.result as ArrayBuffer,
+                progress: 1,
+                status: "done",
                 direction: "receive",
               })
             );
-            this.receiveMetadata = null;
-            this.receiveBuffer = [];
           };
           reader.readAsArrayBuffer(blob);
+          this.receiveMetadata = null;
+          this.receiveBuffer = [];
+          this.receivedBytes = 0;
         }
       } else if (msg.type === "text") {
         this.dataHandlers.forEach((h) =>
@@ -182,10 +233,29 @@ export class WebRTCManager {
     });
   }
 
-  async sendFile(file: File) {
-    if (!this.conn?.open) return;
+  private waitForDrain(): Promise<void> {
+    return new Promise((resolve) => {
+      const dc = (this.conn as unknown as { dataChannel: RTCDataChannel })
+        ?.dataChannel;
+      if (!dc || dc.bufferedAmount <= HIGH_WATER_MARK) {
+        resolve();
+        return;
+      }
+      const check = () => {
+        if (!dc || dc.bufferedAmount <= HIGH_WATER_MARK) {
+          resolve();
+        } else {
+          setTimeout(check, 10);
+        }
+      };
+      setTimeout(check, 10);
+    });
+  }
 
-    const id = crypto.randomUUID();
+  async sendFile(file: File, id?: string): Promise<string> {
+    if (!this.conn?.open) throw new Error("Not connected");
+
+    if (!id) id = crypto.randomUUID();
 
     // Send metadata
     this.conn.send({
@@ -195,23 +265,36 @@ export class WebRTCManager {
       id,
     });
 
-    // Send chunks
-    const buffer = await file.arrayBuffer();
+    this.emitProgress(id, 0, "transferring");
+
+    // Stream file in chunks using Blob.slice to avoid loading entire file
     let offset = 0;
 
-    while (offset < buffer.byteLength) {
-      const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-      this.conn.send(chunk);
-      offset += CHUNK_SIZE;
-
-      // Yield to avoid blocking
-      if (offset % (CHUNK_SIZE * 16) === 0) {
-        await new Promise((r) => setTimeout(r, 0));
+    while (offset < file.size) {
+      if (!this.conn?.open) {
+        this.emitProgress(id, offset / file.size, "error");
+        throw new Error("Connection lost during transfer");
       }
+
+      const end = Math.min(offset + CHUNK_SIZE, file.size);
+      const slice = file.slice(offset, end);
+      const chunk = await slice.arrayBuffer();
+      this.conn.send(chunk);
+      offset = end;
+
+      // Emit send progress
+      const progress = offset / file.size;
+      this.emitProgress(id, progress, "transferring");
+
+      // Backpressure: wait for buffer to drain
+      await this.waitForDrain();
     }
 
     // Send end marker
     this.conn.send({ type: "file-end", id });
+    this.emitProgress(id, 1, "done");
+
+    return id;
   }
 
   sendText(text: string) {
@@ -232,5 +315,6 @@ export class WebRTCManager {
     this.setState("idle");
     this.stateHandlers.clear();
     this.dataHandlers.clear();
+    this.progressHandlers.clear();
   }
 }

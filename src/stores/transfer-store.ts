@@ -20,6 +20,59 @@ interface TransferState {
   disconnect: () => void;
 }
 
+function setupManager(
+  manager: WebRTCManager,
+  set: (fn: (s: TransferState) => Partial<TransferState>) => void,
+  get: () => TransferState
+) {
+  manager.onStateChange((state) => {
+    set(() => ({ connectionState: state, peerId: manager.peerId }));
+  });
+
+  manager.onData((item) => {
+    if (item.name === "__clipboard__") {
+      if (get().clipboardSyncEnabled && item.text) {
+        navigator.clipboard.writeText(item.text).catch(() => {});
+      }
+      return;
+    }
+
+    set((s) => {
+      // If this is a file-end (has data), update existing item instead of adding duplicate
+      if (item.type === "file" && item.data) {
+        const existing = s.items.find(
+          (i) => i.id === item.id && i.direction === "receive"
+        );
+        if (existing) {
+          return {
+            items: s.items.map((i) =>
+              i.id === item.id && i.direction === "receive"
+                ? { ...i, data: item.data, progress: 1, status: "done" as const }
+                : i
+            ),
+          };
+        }
+      }
+
+      // If this is a new receiving file (no data yet), add it
+      const alreadyExists = s.items.some(
+        (i) => i.id === item.id && i.direction === item.direction
+      );
+      if (alreadyExists) return {};
+
+      return { items: [...s.items, item] };
+    });
+  });
+
+  manager.onProgress((id, progress, status) => {
+    set((s) => ({
+      items: s.items.map((i) =>
+        i.id === id ? { ...i, progress, status } : i
+      ),
+    }));
+  });
+}
+
 export const useTransferStore = create<TransferState>((set, get) => ({
   roomCode: "",
   connectionState: "idle",
@@ -30,61 +83,48 @@ export const useTransferStore = create<TransferState>((set, get) => ({
 
   createRoom: async () => {
     const manager = new WebRTCManager();
-
-    manager.onStateChange((state) => {
-      set({ connectionState: state, peerId: manager.peerId });
-    });
-
-    manager.onData((item) => {
-      if (item.name === "__clipboard__") {
-        if (get().clipboardSyncEnabled && item.text) {
-          navigator.clipboard.writeText(item.text).catch(() => {});
-        }
-        return;
-      }
-      set((s) => ({ items: [...s.items, item] }));
-    });
+    setupManager(manager, set, get);
 
     const roomCode = await manager.createRoom();
-    set({ roomCode, manager });
+    set(() => ({ roomCode, manager }));
     return roomCode;
   },
 
   joinRoom: async (code: string) => {
     const manager = new WebRTCManager();
-
-    manager.onStateChange((state) => {
-      set({ connectionState: state, peerId: manager.peerId });
-    });
-
-    manager.onData((item) => {
-      if (item.name === "__clipboard__") {
-        if (get().clipboardSyncEnabled && item.text) {
-          navigator.clipboard.writeText(item.text).catch(() => {});
-        }
-        return;
-      }
-      set((s) => ({ items: [...s.items, item] }));
-    });
+    setupManager(manager, set, get);
 
     await manager.joinRoom(code);
-    set({ roomCode: code, manager });
+    set(() => ({ roomCode: code, manager }));
   },
 
   sendFile: async (file: File) => {
     const { manager } = get();
     if (!manager) return;
 
+    const id = crypto.randomUUID();
     const item: TransferItem = {
-      id: crypto.randomUUID(),
+      id,
       type: "file",
       name: file.name,
       size: file.size,
+      progress: 0,
+      status: "pending",
       direction: "send",
     };
     set((s) => ({ items: [...s.items, item] }));
 
-    await manager.sendFile(file);
+    try {
+      await manager.sendFile(file, id);
+    } catch {
+      set((s) => ({
+        items: s.items.map((i) =>
+          i.id === id && i.direction === "send"
+            ? { ...i, status: "error" as const }
+            : i
+        ),
+      }));
+    }
   },
 
   sendText: (text: string) => {
@@ -109,13 +149,13 @@ export const useTransferStore = create<TransferState>((set, get) => ({
   disconnect: () => {
     const { manager } = get();
     manager?.disconnect();
-    set({
+    set(() => ({
       roomCode: "",
       connectionState: "idle",
       peerId: "",
       items: [],
       clipboardSyncEnabled: false,
       manager: null,
-    });
+    }));
   },
 }));

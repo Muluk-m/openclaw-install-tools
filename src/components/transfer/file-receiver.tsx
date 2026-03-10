@@ -1,14 +1,15 @@
 "use client";
 
 import { useMemo } from "react";
-import { Download, Eye, FileIcon } from "lucide-react";
+import { Download, Eye, FileIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TransferItem } from "@/lib/webrtc";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function getMimeType(name?: string): string {
@@ -38,6 +39,10 @@ function isImage(name?: string): boolean {
 }
 
 function FileItem({ item }: { item: TransferItem }) {
+  const isTransferring = item.status === "transferring" || (!item.data && item.status !== "error");
+  const progress = item.progress ?? 0;
+  const percent = Math.round(progress * 100);
+
   const objectUrl = useMemo(() => {
     if (!item.data) return null;
     const mime = getMimeType(item.name);
@@ -85,19 +90,39 @@ function FileItem({ item }: { item: TransferItem }) {
           <p className="truncate text-sm" title={item.name}>
             {item.name}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {item.size ? formatSize(item.size) : ""}
-          </p>
+          {isTransferring ? (
+            <div className="mt-1 flex items-center gap-2">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {percent}%
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {item.size ? formatSize(item.size) : ""}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-1">
-          {isPreviewable(item.name) && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handlePreview} title="预览">
-              <Eye className="h-3.5 w-3.5" />
-            </Button>
+          {isTransferring ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <>
+              {isPreviewable(item.name) && (
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handlePreview} title="预览">
+                  <Eye className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownload} title="下载">
+                <Download className="h-3.5 w-3.5" />
+              </Button>
+            </>
           )}
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownload} title="下载">
-            <Download className="h-3.5 w-3.5" />
-          </Button>
         </div>
       </div>
     </div>
