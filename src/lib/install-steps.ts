@@ -368,33 +368,12 @@ export const installSteps: InstallStep[] = [
     verifiable: false,
   },
   {
-    id: "feishu-download-plugin",
-    phase: "feishu",
-    title: "下载并安装飞书插件",
-    description: "运行以下命令下载并全局安装飞书插件 CLI 工具：",
-    commands: {
-      mode: "platform",
-      mac: "curl -o /tmp/feishu-openclaw-plugin-onboard-cli.tgz https://sf3-cn.feishucdn.com/obj/open-platform-opendoc/c53145d7b9eb0e29f4e07bf051231230_XjCy46mAFI.tgz && npm install -g /tmp/feishu-openclaw-plugin-onboard-cli.tgz && rm /tmp/feishu-openclaw-plugin-onboard-cli.tgz",
-      windows:
-        'Invoke-WebRequest -Uri "https://sf3-cn.feishucdn.com/obj/open-platform-opendoc/c53145d7b9eb0e29f4e07bf051231230_XjCy46mAFI.tgz" -OutFile "$env:TEMP\\feishu-openclaw-plugin-onboard-cli.tgz"\nnpm install -g "$env:TEMP\\feishu-openclaw-plugin-onboard-cli.tgz"\nRemove-Item "$env:TEMP\\feishu-openclaw-plugin-onboard-cli.tgz"',
-    },
-    verifiable: false,
-  },
-  {
-    id: "feishu-update",
-    phase: "feishu",
-    title: "更新插件数据",
-    description: "更新飞书插件的本地数据到最新版本：",
-    commands: { mode: "single", command: "feishu-plugin-onboard update" },
-    verifiable: false,
-  },
-  {
     id: "feishu-install",
     phase: "feishu",
-    title: "安装插件配置",
+    title: "安装飞书插件",
     description:
-      "运行安装命令，按照交互式提示输入 App ID 和 App Secret：",
-    commands: { mode: "single", command: "feishu-plugin-onboard install" },
+      "运行以下命令安装飞书插件，按照交互式提示输入 App ID 和 App Secret：",
+    commands: { mode: "single", command: "npx -y @larksuite/openclaw-lark-tools install" },
     verifiable: false,
   },
   {
