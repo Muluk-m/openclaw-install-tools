@@ -229,9 +229,31 @@ export class WebRTCManager {
         );
       } else if (msg.type === "file-end") {
         if (this.receiveMetadata) {
+          const meta = this.receiveMetadata;
+          const totalBytes = msg.totalBytes as number | undefined;
+
+          // Integrity check: verify received bytes match expected total
+          if (totalBytes != null && this.receivedBytes !== totalBytes) {
+            this.emitProgress(meta.id, 0, "error");
+            this.dataHandlers.forEach((h) =>
+              h({
+                id: meta.id,
+                type: "file",
+                name: meta.name,
+                size: meta.size,
+                progress: 0,
+                status: "error",
+                direction: "receive",
+              })
+            );
+            this.receiveMetadata = null;
+            this.receiveBuffer = [];
+            this.receivedBytes = 0;
+            return;
+          }
+
           const blob = new Blob(this.receiveBuffer);
           const reader = new FileReader();
-          const meta = this.receiveMetadata;
           reader.onload = () => {
             this.emitProgress(meta.id, 1, "done");
             this.dataHandlers.forEach((h) =>
@@ -340,8 +362,11 @@ export class WebRTCManager {
       await this.waitForDrain();
     }
 
-    // Send end marker
-    this.conn.send({ type: "file-end", id });
+    // Wait for last chunks to drain before sending end marker
+    await this.waitForDrain();
+
+    // Send end marker with totalBytes for integrity check
+    this.conn.send({ type: "file-end", id, totalBytes: file.size });
     this.emitProgress(id, 1, "done");
 
     return id;

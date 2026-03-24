@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Download, Eye, FileIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TransferItem } from "@/lib/webrtc";
@@ -42,11 +42,27 @@ function FileItem({ item }: { item: TransferItem }) {
   const isTransferring = item.status === "transferring" || (!item.data && item.status !== "error");
   const progress = item.progress ?? 0;
   const percent = Math.round(progress * 100);
+  const autoDownloaded = useRef(false);
 
   const objectUrl = useMemo(() => {
     if (!item.data) return null;
     const mime = getMimeType(item.name);
     return URL.createObjectURL(new Blob([item.data], { type: mime }));
+  }, [item.data, item.name]);
+
+  // Auto-download when file transfer completes
+  useEffect(() => {
+    if (item.data && !autoDownloaded.current) {
+      autoDownloaded.current = true;
+      const mime = getMimeType(item.name);
+      const blob = new Blob([item.data], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.name ?? "file";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   }, [item.data, item.name]);
 
   const handlePreview = () => {
